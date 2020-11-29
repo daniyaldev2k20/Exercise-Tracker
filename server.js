@@ -15,7 +15,7 @@ dotenv.config({
 });
 
 mongoose
-  .connect(process.env.MD, {
+  .connect(process.env.DB, {
     useNewUrlParser: true,
     useFindAndModify: false,
     useCreateIndex: true,
@@ -71,6 +71,8 @@ app.get('/api/exercise/users', async (req, res) => {
 
 app.post('/api/exercise/add', async (req, res) => {
   let exercise;
+  const defaultDate = moment().format('YYYY-MM-DD');
+
   const user = await User.findById(req.body.userId);
   if (!user) {
     return res.send('No user exists with that id');
@@ -88,7 +90,7 @@ app.post('/api/exercise/add', async (req, res) => {
     exercise = await Exercise.create({
       description,
       duration,
-      date: moment().format('YYYY-MM-DD'),
+      date: defaultDate,
     });
   }
 
@@ -101,47 +103,38 @@ app.post('/api/exercise/add', async (req, res) => {
 });
 
 app.get('/api/exercise/log', async (req, res) => {
-  let userLog;
   const user = await User.findById(req.query.userId);
+  let userLogs;
+
   if (!user) {
     return res.send('No user exists with that id');
   }
 
-  const { from, to, limitQuery } = req.query;
+  const { fromDate, toDate, limitQuery } = req.query;
 
-  await User.findOne({ username: user.username })
-    .populate('exerciseLog')
-    .then((data) => {
-      userLog = data.exerciseLog;
-
-      if (from && to) {
-        userLog = userLog.filter((exercise) =>
-          moment(exercise.date).isBetween(from, to, null, [])
-        );
-      }
-
-      if (limitQuery) {
-        userLog = userLog.slice(0, limitQuery);
-      }
-
-      userLog = userLog.reduce((acc, exercise) => {
-        acc.push({
-          description: exercise.description,
-          duration: exercise.duration,
-          date: new Date(exercise.date).toISOString().split('T')[0],
-        });
-        return acc;
-      }, []);
-    });
+  if(fromDate && toDate && limitQuery){
+    userLogs = await User.findOne({username: user.username}).populate({
+      path: 'exerciseLog',
+      match: { 'date': { $gte: fromDate, $lte: toDate }},
+      options: { sort: { date: -1 }, limit: limitQuery },
+    })
+  } else if(limitQuery){
+     userLogs = await User.findOne({username: user.username}).populate({
+      path: 'exerciseLog',
+      options: { sort: { date: -1 }, limit: limitQuery },
+    })
+  } else {
+     userLogs = await User.findOne({username: user.username}).populate({ path: 'exerciseLog' })
+  }
 
   res.json({
-    id: user.id,
+    id: user._id,
     username: user.username,
-    log: userLog,
-    count: user.exerciseLog.length,
-  });
-});
+    userLogs,
+    count: userLogs.length
+  })
 
+});
 // Not found middleware
 app.use((req, res, next) => {
   return next({ status: 404, message: 'not found' });
